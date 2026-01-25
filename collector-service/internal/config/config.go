@@ -19,6 +19,9 @@ func LoadConfig() (*Config, error) {
 
 	viper.AutomaticEnv()
 
+	// Set default topic
+	viper.SetDefault("KAFKA_TOPIC", "raw-events")
+
 	var c Config
 	if err := viper.Unmarshal(&c); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)

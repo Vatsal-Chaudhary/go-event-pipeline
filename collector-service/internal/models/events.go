@@ -18,6 +18,7 @@ type RawEvent struct {
 	GeoCountry string                 `json:"geo_country"`
 	DeviceType string                 `json:"device_type"`
 	CreatedAt  time.Time              `json:"created_at"`
+	IPAddress  string                 `json:"ip_address,omitempty"`
 	MetaData   map[string]interface{} `json:"meta_data,omitempty"`
 }
 type KafkaEventMessage struct {
@@ -27,5 +28,6 @@ type KafkaEventMessage struct {
 	GeoCountry string                 `json:"geo_country"`
 	DeviceType string                 `json:"device_type"`
 	Timestamp  *time.Time             `json:"timestamp,omitempty"`
+	IPAddress  string                 `json:"ip_address,omitempty"`
 	MetaData   map[string]interface{} `json:"meta_data,omitempty"`
 }

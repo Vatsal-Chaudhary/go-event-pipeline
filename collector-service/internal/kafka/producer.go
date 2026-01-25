@@ -51,6 +51,7 @@ func (p *Producer) SendEvent(ctx context.Context, event models.RawEvent) error {
 		GeoCountry: event.GeoCountry,
 		DeviceType: event.DeviceType,
 		Timestamp:  &event.CreatedAt,
+		IPAddress:  event.IPAddress,
 		MetaData:   event.MetaData,
 	}
 
@@ -86,6 +87,7 @@ func (p *Producer) SendEventBatch(ctx context.Context, events []models.RawEvent)
 			GeoCountry: event.GeoCountry,
 			DeviceType: event.DeviceType,
 			Timestamp:  &event.CreatedAt,
+			IPAddress:  event.IPAddress,
 			MetaData:   event.MetaData,
 		}
 
