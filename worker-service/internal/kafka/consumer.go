@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 	"worker-service/internal/models"
 	"worker-service/internal/service"
 
@@ -87,10 +86,6 @@ func (h *consumerGroupHandler) Cleanup(sarama.ConsumerGroupSession) error {
 }
 
 func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claims sarama.ConsumerGroupClaim) error {
-	batch := make([]*models.KafkaEventMessage, 0, 100)
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case message := <-claims.Messages():
@@ -105,29 +100,17 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 				continue
 			}
 
-			batch = append(batch, &kafkaMsg)
+			// Process single event through Smart Worker chain
+			if err := h.consumer.service.ProcessEvent(session.Context(), &kafkaMsg); err != nil {
+				log.Printf("Process event error: %v", err)
+				// Still mark message to avoid reprocessing
+				session.MarkMessage(message, "")
+			} else {
+				session.MarkMessage(message, "")
+			}
 
-			if len(batch) >= 100 {
-				if err := h.processBatch(session.Context(), batch); err != nil {
-					log.Printf("Process batch error: %v", err)
-				} else {
-					session.MarkMessage(message, "")
-				}
-				batch = batch[:0]
-			}
-		case <-ticker.C:
-			if len(batch) > 0 {
-				if err := h.processBatch(session.Context(), batch); err != nil {
-					log.Printf("Process batch error: %v", err)
-				}
-				batch = batch[:0]
-			}
 		case <-session.Context().Done():
 			return nil
 		}
 	}
-}
-
-func (h *consumerGroupHandler) processBatch(ctx context.Context, batch []*models.KafkaEventMessage) error {
-	return h.consumer.service.ProcessEventBatch(ctx, batch)
 }

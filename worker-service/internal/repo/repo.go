@@ -45,9 +45,9 @@ func (r *EventRepo) ProcessRawEvent(ctx context.Context, event *models.RawEvent)
 	insertQuery := `
 	INSERT INTO raw_events (
 		event_type, user_id, campaign_id, geo_country, device_type,
-		created_at, meta_data
+		created_at, ip_address, risk_score, meta_data
 	)
-	VALUES ($1, $2, $3, $4, $5, $6, $7)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 
 	_, err = tx.ExecContext(ctx, insertQuery,
@@ -57,6 +57,8 @@ func (r *EventRepo) ProcessRawEvent(ctx context.Context, event *models.RawEvent)
 		event.GeoCountry,
 		event.DeviceType,
 		event.CreatedAt,
+		event.IPAddress,
+		event.RiskScore,
 		metaDataJSON,
 	)
 	if err != nil {
@@ -118,7 +120,7 @@ func (r *EventRepo) ProcessRawEventsBatch(ctx context.Context, events []*models.
 	stmt, err := tx.PrepareContext(ctx, pq.CopyIn(
 		"raw_events",
 		"event_type", "user_id", "campaign_id", "geo_country",
-		"device_type", "created_at", "meta_data",
+		"device_type", "created_at", "ip_address", "risk_score", "meta_data",
 	))
 	if err != nil {
 		return fmt.Errorf("prepare copy: %w", err)
@@ -143,6 +145,8 @@ func (r *EventRepo) ProcessRawEventsBatch(ctx context.Context, events []*models.
 			event.GeoCountry,
 			event.DeviceType,
 			event.CreatedAt,
+			event.IPAddress,
+			event.RiskScore,
 			metaDataJSON,
 		)
 		if err != nil {
