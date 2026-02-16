@@ -3,10 +3,12 @@ package handler
 import (
 	"collector-service/internal/kafka"
 	"collector-service/internal/models"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 type EventHandler struct {
@@ -49,8 +51,12 @@ func (h *EventHandler) HandleEvent(c *fiber.Ctx) error {
 		})
 	}
 
+	if event.EventID == "" {
+		event.EventID = uuid.NewString()
+	}
+
 	// Basic validation
-	if event.EventType == "" || event.UserID == "" || event.CampaignID == "" {
+	if event.UserID == "" || event.CampaignID == "" || event.EventType == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "event_type, user_id and campaign_id are required",
 		})
@@ -62,6 +68,7 @@ func (h *EventHandler) HandleEvent(c *fiber.Ctx) error {
 
 	// Extract and attach IP address
 	event.IPAddress = extractIPAddress(c)
+	fmt.Println(event.IPAddress)
 
 	if err := h.producer.SendEvent(c.Context(), event); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -99,6 +106,9 @@ func (h *EventHandler) HandleEventBatch(c *fiber.Ctx) error {
 	for i := range events {
 		if events[i].CreatedAt.IsZero() {
 			events[i].CreatedAt = now
+		}
+		if events[i].EventID == "" {
+			events[i].EventID = uuid.NewString()
 		}
 		// Attach IP address to each event in batch
 		events[i].IPAddress = ip

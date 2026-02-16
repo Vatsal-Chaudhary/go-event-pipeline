@@ -39,11 +39,14 @@ func main() {
 	log.Println("DB initialized successfully")
 
 	// Initialize MinIO Archiver
-	archiver, err := archive.NewMinIOArchiver(
+	archiver, err := archive.NewBatchArchiver(
 		cfg.MinIOEndpoint,
 		cfg.MinIOAccessKey,
 		cfg.MinIOSecretKey,
 		cfg.MinIOBucket,
+		cfg.ArchiveBatchSize,
+		time.Duration(cfg.ArchiveFlushIntervalSec)*time.Second,
+		cfg.ArchivePrefixMode,
 	)
 	if err != nil {
 		log.Fatal("failed to initialize MinIO archiver:", err)

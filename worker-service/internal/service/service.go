@@ -6,19 +6,18 @@ import (
 	"log"
 	"sync"
 	"time"
+
 	"worker-service/internal/archive"
 	"worker-service/internal/dedupe"
 	"worker-service/internal/fraud"
 	"worker-service/internal/models"
 	"worker-service/internal/repo/interfaces"
 	"worker-service/internal/utils"
-
-	"github.com/google/uuid"
 )
 
 type EventService struct {
 	repo       interfaces.EventRepo
-	archiver   *archive.MinIOArchiver
+	archiver   *archive.BatchArchiver
 	dedup      *dedupe.RedisDeduplicator
 	fraudCheck *fraud.LambdaClient
 
@@ -49,7 +48,7 @@ type MetricsData struct {
 }
 
 type Config struct {
-	Archiver   *archive.MinIOArchiver
+	Archiver   *archive.BatchArchiver
 	Dedup      *dedupe.RedisDeduplicator
 	FraudCheck *fraud.LambdaClient
 }
@@ -83,21 +82,14 @@ func (s *EventService) ProcessEvent(ctx context.Context, msg *models.KafkaEventM
 
 	event := s.transformMessage(msg)
 
-	// Generate event ID if not present
-	if event.EventID == "" {
-		event.EventID = uuid.New().String()
-	}
-
-	// Step 1: Archive to MinIO
-	if err := s.archiver.Archive(ctx, event.EventID, event, event.CreatedAt); err != nil {
-		log.Printf("Archive failed for event %s: %v", event.EventID, err)
+	if err := s.archiver.Enqueue("raw", event); err != nil {
+		log.Printf("Archive enqueue failed for status=raw event %s: %v", event.EventID, err)
 		s.metrics.incrementFailed()
-		return fmt.Errorf("archive: %w", err)
+		return fmt.Errorf("archive raw: %w", err)
 	}
 	s.metrics.incrementArchived()
-	log.Printf("✓ Archived event %s to MinIO", event.EventID)
+	log.Printf("✓ Enqueued event %s for archive status=raw", event.EventID)
 
-	// Step 2: Deduplicate with Redis
 	isDuplicate, err := s.dedup.IsDuplicate(ctx, event.EventID)
 	if err != nil {
 		log.Printf("Deduplication check failed for event %s: %v", event.EventID, err)
@@ -105,13 +97,18 @@ func (s *EventService) ProcessEvent(ctx context.Context, msg *models.KafkaEventM
 		return fmt.Errorf("dedupe: %w", err)
 	}
 	if isDuplicate {
+		if err := s.archiver.Enqueue("duplicate", event); err != nil {
+			log.Printf("Archive enqueue failed for status=duplicate event %s: %v", event.EventID, err)
+			s.metrics.incrementFailed()
+			return fmt.Errorf("archive duplicate: %w", err)
+		}
+		s.metrics.incrementArchived()
 		log.Printf("⚠ Duplicate detected: %s (skipping)", event.EventID)
 		s.metrics.incrementDuplicates()
 		return nil // Stop processing, but don't treat as error
 	}
 	log.Printf("✓ Event %s is unique", event.EventID)
 
-	// Step 3: Check fraud with Lambda
 	riskScore, err := s.fraudCheck.CheckFraud(ctx, event.IPAddress, event.UserID)
 	if err != nil {
 		log.Printf("Fraud check failed for event %s: %v", event.EventID, err)
@@ -121,15 +118,26 @@ func (s *EventService) ProcessEvent(ctx context.Context, msg *models.KafkaEventM
 	event.RiskScore = riskScore
 	log.Printf("✓ Fraud check complete for event %s: risk_score=%d", event.EventID, riskScore)
 
-	// If high risk, log and skip DB save
 	if riskScore > 80 {
+		if err := s.archiver.Enqueue("fraud", event); err != nil {
+			log.Printf("Archive enqueue failed for status=fraud event %s: %v", event.EventID, err)
+			s.metrics.incrementFailed()
+			return fmt.Errorf("archive fraud: %w", err)
+		}
+		s.metrics.incrementArchived()
 		log.Printf("🚨 FRAUD DETECTED for event %s: risk_score=%d, ip=%s, user=%s",
 			event.EventID, riskScore, event.IPAddress, event.UserID)
 		s.metrics.incrementFraudDetected()
 		return nil // Stop processing, commit offset
 	}
 
-	// Step 4: Persist to DB
+	if err := s.archiver.Enqueue("accepted", event); err != nil {
+		log.Printf("Archive enqueue failed for status=accepted event %s: %v", event.EventID, err)
+		s.metrics.incrementFailed()
+		return fmt.Errorf("archive accepted: %w", err)
+	}
+	s.metrics.incrementArchived()
+
 	if err := s.repo.ProcessRawEvent(ctx, event); err != nil {
 		log.Printf("DB persist failed for event %s: %v", event.EventID, err)
 		s.metrics.incrementFailed()
@@ -141,7 +149,6 @@ func (s *EventService) ProcessEvent(ctx context.Context, msg *models.KafkaEventM
 	return nil
 }
 
-// ProcessEventBatch processes multiple events
 func (s *EventService) ProcessEventBatch(ctx context.Context, messages []*models.KafkaEventMessage) error {
 	if len(messages) == 0 {
 		return nil
@@ -166,6 +173,7 @@ func (s *EventService) transformMessage(msg *models.KafkaEventMessage) *models.R
 	}
 
 	return &models.RawEvent{
+		EventID:    msg.EventID,
 		EventType:  msg.EventType,
 		UserID:     msg.UserID,
 		CampaignID: msg.CampaignID,
@@ -193,6 +201,9 @@ func (s *EventService) GetMetrics() MetricsData {
 
 func (s *EventService) Shutdown(ctx context.Context) error {
 	close(s.shutdownCh)
+	if err := s.archiver.Close(); err != nil {
+		return fmt.Errorf("archiver close: %w", err)
+	}
 
 	done := make(chan struct{})
 	go func() {

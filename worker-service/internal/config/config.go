@@ -29,6 +29,11 @@ type Config struct {
 	MinIOSecretKey string `mapstructure:"MINIO_SECRET_KEY"`
 	MinIOBucket    string `mapstructure:"MINIO_BUCKET"`
 
+	// Archive
+	ArchiveBatchSize        int    `mapstructure:"ARCHIVE_BATCH_SIZE"`
+	ArchiveFlushIntervalSec int    `mapstructure:"ARCHIVE_FLUSH_INTERVAL_SEC"`
+	ArchivePrefixMode       string `mapstructure:"ARCHIVE_PREFIX_MODE"`
+
 	// Fraud Lambda
 	LambdaEndpoint string `mapstructure:"LAMBDA_ENDPOINT"`
 }
@@ -67,6 +72,15 @@ func (c *Config) validate() error {
 	}
 	if c.Port == "" {
 		return fmt.Errorf("PORT is required")
+	}
+	if c.ArchiveBatchSize <= 0 {
+		c.ArchiveBatchSize = 100
+	}
+	if c.ArchiveFlushIntervalSec <= 0 {
+		c.ArchiveFlushIntervalSec = 5
+	}
+	if c.ArchivePrefixMode == "" {
+		c.ArchivePrefixMode = "status"
 	}
 
 	return nil

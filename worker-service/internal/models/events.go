@@ -32,6 +32,7 @@ type CampaignStats struct {
 }
 
 type KafkaEventMessage struct {
+	EventID    string                 `json:"event_id,omitempty"`
 	EventType  EventType              `json:"event_type"`
 	UserID     string                 `json:"user_id"`
 	CampaignID string                 `json:"campaign_id"`

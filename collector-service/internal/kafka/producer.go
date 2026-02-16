@@ -45,6 +45,7 @@ func NewProducer(config ProducerConfig) (*Producer, error) {
 
 func (p *Producer) SendEvent(ctx context.Context, event models.RawEvent) error {
 	kafkaMsg := models.KafkaEventMessage{
+		EventID:    event.EventID,
 		EventType:  event.EventType,
 		UserID:     event.UserID,
 		CampaignID: event.CampaignID,
@@ -62,7 +63,7 @@ func (p *Producer) SendEvent(ctx context.Context, event models.RawEvent) error {
 
 	message := &sarama.ProducerMessage{
 		Topic:     p.topic,
-		Key:       nil, // Round-robin partitioning
+		Key:       sarama.StringEncoder(event.EventID),
 		Value:     sarama.ByteEncoder(payload),
 		Timestamp: time.Now(),
 	}
@@ -81,6 +82,7 @@ func (p *Producer) SendEventBatch(ctx context.Context, events []models.RawEvent)
 
 	for _, event := range events {
 		kafkaMsg := models.KafkaEventMessage{
+			EventID:    event.EventID,
 			EventType:  event.EventType,
 			UserID:     event.UserID,
 			CampaignID: event.CampaignID,
@@ -99,7 +101,7 @@ func (p *Producer) SendEventBatch(ctx context.Context, events []models.RawEvent)
 
 		messages = append(messages, &sarama.ProducerMessage{
 			Topic:     p.topic,
-			Key:       nil, // Round-robin partitioning
+			Key:       sarama.StringEncoder(event.EventID),
 			Value:     sarama.ByteEncoder(payload),
 			Timestamp: time.Now(),
 		})

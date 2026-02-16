@@ -22,6 +22,7 @@ type RawEvent struct {
 	MetaData   map[string]interface{} `json:"meta_data,omitempty"`
 }
 type KafkaEventMessage struct {
+	EventID    string                 `json:"event_id,omitempty"`
 	EventType  EventType              `json:"event_type"`
 	UserID     string                 `json:"user_id"`
 	CampaignID string                 `json:"campaign_id"`

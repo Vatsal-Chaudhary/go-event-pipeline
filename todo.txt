@@ -1,0 +1,174 @@
+--> Option A: The "Resilience" Path (Backend Focus)
+Add a Dead Letter Queue (DLQ).
+
+The Concept: What happens if the Lambda crashes or the Postgres database is full? Currently, your Worker might crash or get stuck.
+
+The Upgrade:
+
+Create a new Kafka topic called dead-letter-events.
+
+Modify the Worker: If any step fails (Redis/Lambda/Postgres) after 3 retries, do not crash. Instead, publish the failed event to dead-letter-events with an error reason.
+
+Why it helps: It shows you understand Fault Tolerance. "I designed this system so that one bad message doesn't kill the pipeline."
+
+--> Option B: The "Ops/SRE" Path (Cloud Focus)
+Add Terraform (Infrastructure as Code).
+
+The Concept: You have a docker-compose.yaml, which is great for local dev. But the cloud uses real infrastructure.
+
+The Upgrade: Write Terraform (.tf) files to define the theoretical AWS infrastructure.
+
+Define an S3 Bucket (Archive).
+
+Define an RDS Instance (Postgres).
+
+Define an MSK Cluster (Kafka).
+
+Define a Lambda Function.
+
+Why it helps: You don't even need to apply it (since it costs money). Just having the terraform/ folder in your repo proves you know how to provision the cloud infrastructure programmatically.
+
+--> Option C: The "Observability" Path (DevOps Focus)
+Add Prometheus & Grafana.
+
+The Concept: "How fast is my pipeline?"
+
+The Upgrade:
+
+Add a metrics endpoint to your Collector and Worker services.
+
+Track events_processed_total and fraud_detected_total.
+
+Run a Grafana container in Docker Compose to visualize these numbers in a dashboard.
+
+Why it helps: It shows you care about Monitoring. Managers love seeing dashboards.
+
+
+Why Kubernetes + "The Brain" Pattern is a Resume Killer
+Service Discovery: In Docker Compose, you hardcode hostnames. In K8s, you use ClusterIP Services. Your Worker calls the Lambda via internal DNS (http://fraud-lambda.default.svc.cluster.local). This proves you understand internal networking.
+
+The "Killer Feature" (Autoscaling): This is your chance to mention KEDA (Kubernetes Event-driven Autoscaling).
+
+Normal K8s: Scales based on CPU usage.
+
+Senior K8s: Scales based on Kafka Lag.
+
+Scenario: If 10,000 events hit raw-events,
+KEDA detects the lag and automatically spins up 5 more Worker pods.
+When the queue is empty, it scales them down to 1. This is highly impressive.
+
+
+
+The Plan for "K8s Now"
+We will ask the AI to generate:
+
+The Code: (Same as before: Go, Redis, Lambda logic).
+
+The Manifests (/k8s folder):
+
+Deployments: For Collector, Worker, and Fraud Lambda.
+
+Services: To expose the Collector (LoadBalancer) and Lambda (ClusterIP).
+
+ConfigMaps/Secrets: To manage DB passwords and Kafka URLs.
+
+The Final, "Cloud-Native" Prompt
+This prompt includes the Smart Worker, the Lambda, and the Kubernetes Manifests.
+
+Copy and paste this:
+
+Role: You are a Senior Backend & Platform Engineer expert in Go, Kubernetes, Kafka, and AWS Lambda.
+
+Context: I am building a Cloud-Native Event Pipeline. I need to implement a "Smart Worker" architecture using Go and AWS Lambda, and then orchestrate the entire stack on Kubernetes.
+
+Task: Generate the Go code, Docker config, and Kubernetes Manifests for the following system:
+
+1. Architecture & Data Flow
+A. Collector Service (Go):
+
+Logic: HTTP Server. Extract IP from headers. Produce to Kafka Topic raw-events.
+
+K8s Requirement: Must be accessible from outside the cluster.
+
+B. Fraud Detection Lambda (Go):
+
+Logic: AWS Lambda function (using aws-lambda-go and RIE).
+
+Rules: Receive { "ip": "...", "user_id": "..." }. Return {"risk_score": 100} if IP starts with 10., else 0.
+
+K8s Requirement: Run as a Deployment. Exposed internally via a Service so the Worker can call it via HTTP.
+
+C. Worker Service (Go):
+
+Logic Chain:
+
+Archive: Upload raw JSON to MinIO.
+
+Dedup: Check Redis SETNX.
+
+Fraud Check: Invoke the Fraud Lambda (using K8s DNS hostname).
+
+Save: Persist to Postgres (ip_address, risk_score).
+
+K8s Requirement: Connects to Redis, Postgres, MinIO, and Kafka.
+
+2. Deliverables
+Part A: The Code (Go)
+collector/main.go: With IP extraction.
+
+worker/main.go: The "Smart" pipeline logic (MinIO -> Redis -> Lambda -> DB).
+
+fraud-lambda/main.go: The scoring logic.
+
+docker-compose.yaml: For rapid local development (include Redpanda, Redis, MinIO, Postgres).
+
+Part B: The Infrastructure (Kubernetes YAMLs)
+Create a k8s/ directory with standard manifests:
+
+infra.yaml: Simple Deployments/Services for Redis and MinIO (use standard images). Note: Assume Kafka and Postgres are already running or provide simple statefulsets for them.
+
+services.yaml:
+
+Collector: Deployment + Service (Type: LoadBalancer or NodePort).
+
+Fraud Lambda: Deployment + Service (Type: ClusterIP - internal only).
+
+Worker: Deployment only (it's a consumer, no Service needed).
+
+config.yaml: A ConfigMap for non-sensitive env vars (Kafka URL, Service URLs) and a Secret for DB passwords.
+
+3. Special Instructions
+Networking: In the Go code, ensure the URLs are configurable via Environment Variables so they work in both Docker Compose (http://fraud-lambda:8080) and Kubernetes (http://fraud-lambda.default.svc.cluster.local:8080).
+
+Lambda RIE: Explain how the Lambda container runs inside Kubernetes (as a web server listening on port 8080).
+
+What's Next (After you get this code)
+Once you have this working, your CI/CD step (later) becomes very clear:
+
+CI: Run Go tests -> Build Docker Images -> Push to Docker Hub.
+
+CD: Update the image tag in k8s/services.yaml -> Run kubectl apply -f k8s/.
+
+Fix: dedupe on a stable key:
+
+ideally msg.EventID from client/collector (generated once and reused on retries), OR
+
+compute a deterministic fingerprint: hash of (event_type, user_id, campaign_id, timestamp bucket, ip, metadata…)
+
+Example idea:
+
+dedupe_key = sha256(canonical_json(event without server timestamps))
+✅ Keep archiving all raw events, but make it cheap and bounded:
+
+Batch (you already do in archive-service)
+
+Compress (gzip/zstd)
+
+Retention policy (expire after 7–30 days)
+
+Store status in the archived record (valid/duplicate/fraud) OR separate prefixes
+
+That avoids “S3 bloat forever”, while keeping audit/replay capability.
+
+Key point: bloat happens when you store one object per event with infinite retention.
+Batch + compression + lifecycle rules fixes that.
