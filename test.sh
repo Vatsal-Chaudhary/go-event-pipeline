@@ -12,6 +12,7 @@ POSTGRES_DB="${POSTGRES_DB:-analytics}"
 REDIS_HOST="${REDIS_HOST:-localhost}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 REDIS_CONTAINER="${REDIS_CONTAINER:-redis}"
+STRICT_REDIS_CHECK="${STRICT_REDIS_CHECK:-true}"
 
 MINIO_CONTAINER="${MINIO_CONTAINER:-minio}"
 MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://localhost:9000}"
@@ -57,6 +58,10 @@ warn() {
 fail() {
   printf "%b\n" "${RED}[fail]${NC} $*"
   exit 1
+}
+
+is_true() {
+  [[ "${1,,}" == "true" || "${1}" == "1" || "${1,,}" == "yes" ]]
 }
 
 require_cmd() {
@@ -168,6 +173,9 @@ main() {
 
   log "Resetting hot IP counter in Redis: ${HOT_KEY}"
   if ! redis_del_key "$HOT_KEY"; then
+    if is_true "$STRICT_REDIS_CHECK"; then
+      fail "could not reset Redis key ${HOT_KEY}; Redis check is required"
+    fi
     warn "could not reset Redis key ${HOT_KEY}; hot IP counter may include prior data"
   fi
 
@@ -240,12 +248,25 @@ main() {
     local hot_count
     hot_count="$(redis_get_key "$HOT_KEY" 2>/dev/null | tr -d '[:space:]')"
     if [[ -z "$hot_count" ]]; then
+      if is_true "$STRICT_REDIS_CHECK"; then
+        fail "hot key ${HOT_KEY} not found in Redis"
+      fi
       warn "hot key ${HOT_KEY} not found in Redis (may have expired)"
     else
-      [[ "$hot_count" == "$TOTAL_HOT_REQUESTS" ]] || warn "hot key count expected=${TOTAL_HOT_REQUESTS}, got=${hot_count}"
+      if [[ "$hot_count" != "$TOTAL_HOT_REQUESTS" ]]; then
+        if is_true "$STRICT_REDIS_CHECK"; then
+          fail "hot key count mismatch expected=${TOTAL_HOT_REQUESTS}, got=${hot_count}"
+        fi
+        warn "hot key count expected=${TOTAL_HOT_REQUESTS}, got=${hot_count}"
+      fi
       log "Redis hot-key value: ${HOT_KEY}=${hot_count}"
     fi
-  } || warn "could not read hot key ${HOT_KEY} from Redis"
+  } || {
+    if is_true "$STRICT_REDIS_CHECK"; then
+      fail "could not read hot key ${HOT_KEY} from Redis"
+    fi
+    warn "could not read hot key ${HOT_KEY} from Redis"
+  }
 
   if [[ "$minio_enabled" == "true" ]]; then
     local raw_after dup_after fraud_after accepted_after
