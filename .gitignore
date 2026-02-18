@@ -9,6 +9,8 @@
 .env
 .env.local
 
+local_data/
+
 # Binaries
 bin/
 *.exe
