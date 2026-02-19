@@ -60,9 +60,18 @@ func main() {
 	}
 	log.Println("Redis deduplicator initialized successfully")
 
-	// Initialize Fraud Lambda Client
-	fraudClient := fraud.NewLambdaClient(cfg.LambdaEndpoint)
-	log.Println("Fraud Lambda client initialized successfully")
+	// Initialize Fraud Scorer
+	fraudClient, err := fraud.NewScorer(fraud.Config{
+		Mode:        cfg.FraudMode,
+		Endpoint:    cfg.FraudEndpoint,
+		RedisAddr:   cfg.RedisAddr,
+		IPWindowSec: cfg.FraudIPWindowSec,
+		IPThreshold: cfg.FraudIPThreshold,
+	})
+	if err != nil {
+		log.Fatal("failed to initialize fraud scorer:", err)
+	}
+	log.Println("Fraud scorer initialized successfully")
 
 	// Initialize Repository
 	eventRepo := repo.NewEventRepo(DB)

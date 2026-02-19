@@ -19,7 +19,7 @@ type EventService struct {
 	repo       interfaces.EventRepo
 	archiver   *archive.BatchArchiver
 	dedup      *dedupe.RedisDeduplicator
-	fraudCheck *fraud.LambdaClient
+	fraudCheck fraud.Scorer
 
 	metrics    *Metrics
 	shutdownCh chan struct{}
@@ -50,7 +50,7 @@ type MetricsData struct {
 type Config struct {
 	Archiver   *archive.BatchArchiver
 	Dedup      *dedupe.RedisDeduplicator
-	FraudCheck *fraud.LambdaClient
+	FraudCheck fraud.Scorer
 }
 
 func NewEventService(repo interfaces.EventRepo, config Config) *EventService {
@@ -69,7 +69,7 @@ func NewEventService(repo interfaces.EventRepo, config Config) *EventService {
 // ProcessEvent processes a single event through the Smart Worker chain:
 // 1. Archive to MinIO
 // 2. Deduplicate with Redis
-// 3. Check fraud with Lambda
+// 3. Check fraud score
 // 4. Persist to DB (if not fraud)
 func (s *EventService) ProcessEvent(ctx context.Context, msg *models.KafkaEventMessage) error {
 	start := time.Now()

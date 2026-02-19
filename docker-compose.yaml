@@ -113,11 +113,11 @@ services:
       echo 'Bucket event-archive created successfully';
       "
 
-  fraud-lambda:
+  fraud-service:
     build:
-      context: ./fraud-lambda
+      context: ./fraud-service
       dockerfile: Dockerfile
-    container_name: fraud-lambda
+    container_name: fraud-service
     environment:
       REDIS_ADDR: redis:6379
       FRAUD_IP_WINDOW_SEC: 300
@@ -130,7 +130,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl -f http://localhost:8080/2015-03-31/functions/function/invocations -d '{}' || exit 1",
+          "wget -q -O - http://localhost:8080/health >/dev/null || exit 1",
         ]
       interval: 10s
       timeout: 5s

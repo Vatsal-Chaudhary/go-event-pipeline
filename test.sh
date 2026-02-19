@@ -3,7 +3,7 @@
 set -euo pipefail
 
 COLLECTOR_URL="${COLLECTOR_URL:-http://localhost:3000}"
-FRAUD_INVOKE_URL="${FRAUD_INVOKE_URL:-http://localhost:9090/2015-03-31/functions/function/invocations}"
+FRAUD_INVOKE_URL="${FRAUD_INVOKE_URL:-http://localhost:9090/score}"
 
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-postgres}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
@@ -167,9 +167,9 @@ main() {
   log "Preflight: collector health"
   curl -fsS "${COLLECTOR_URL}/health" >/dev/null || fail "collector health check failed at ${COLLECTOR_URL}/health"
 
-  log "Preflight: fraud-lambda invoke endpoint"
+  log "Preflight: fraud-service score endpoint"
   curl -fsS -X POST "${FRAUD_INVOKE_URL}" -H "Content-Type: application/json" -d '{"ip_address":"127.0.0.1","user_id":"preflight"}' >/dev/null \
-    || fail "fraud lambda invoke failed at ${FRAUD_INVOKE_URL}"
+    || fail "fraud service score call failed at ${FRAUD_INVOKE_URL}"
 
   log "Resetting hot IP counter in Redis: ${HOT_KEY}"
   if ! redis_del_key "$HOT_KEY"; then

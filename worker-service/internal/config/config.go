@@ -34,8 +34,11 @@ type Config struct {
 	ArchiveFlushIntervalSec int    `mapstructure:"ARCHIVE_FLUSH_INTERVAL_SEC"`
 	ArchivePrefixMode       string `mapstructure:"ARCHIVE_PREFIX_MODE"`
 
-	// Fraud Lambda
-	LambdaEndpoint string `mapstructure:"LAMBDA_ENDPOINT"`
+	// Fraud scoring
+	FraudMode        string `mapstructure:"FRAUD_MODE"`
+	FraudEndpoint    string `mapstructure:"FRAUD_ENDPOINT"`
+	FraudIPWindowSec int    `mapstructure:"FRAUD_IP_WINDOW_SEC"`
+	FraudIPThreshold int    `mapstructure:"FRAUD_IP_THRESHOLD"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -81,6 +84,15 @@ func (c *Config) validate() error {
 	}
 	if c.ArchivePrefixMode == "" {
 		c.ArchivePrefixMode = "status"
+	}
+	if c.FraudMode == "" {
+		c.FraudMode = "inprocess"
+	}
+	if c.FraudIPWindowSec <= 0 {
+		c.FraudIPWindowSec = 300
+	}
+	if c.FraudIPThreshold <= 0 {
+		c.FraudIPThreshold = 100
 	}
 
 	return nil

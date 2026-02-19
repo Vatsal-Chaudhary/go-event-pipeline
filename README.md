@@ -9,7 +9,7 @@ Simple event pipeline using Go, Redpanda (Kafka), Redis, PostgreSQL, and MinIO.
 Worker does:
 - archive `raw`
 - dedupe by `event_id`
-- fraud check by IP threshold (Redis-backed lambda)
+- fraud check by IP threshold (Redis-backed fraud-service)
 - archive `duplicate` / `fraud` / `accepted`
 - persist only accepted events to PostgreSQL
 
@@ -21,7 +21,7 @@ Archive files are batched NDJSON + gzip in MinIO:
 
 ## Start locally
 
-1) Start infra and fraud lambda:
+1) Start infra and fraud-service:
 
 ```bash
 docker compose up -d
@@ -43,12 +43,13 @@ cd worker-service && make run
 ## Important env vars
 
 Worker (`worker-service/.env`):
-- `LAMBDA_ENDPOINT=http://localhost:9090`
+- `FRAUD_MODE=http`
+- `FRAUD_ENDPOINT=http://localhost:9090`
 - `ARCHIVE_BATCH_SIZE=100`
 - `ARCHIVE_FLUSH_INTERVAL_SEC=5`
 - `ARCHIVE_PREFIX_MODE=status`
 
-Fraud lambda (`docker-compose.yaml` env):
+Fraud service (`docker-compose.yaml` env):
 - `REDIS_ADDR=redis:6379`
 - `FRAUD_IP_WINDOW_SEC=300`
 - `FRAUD_IP_THRESHOLD=100`
