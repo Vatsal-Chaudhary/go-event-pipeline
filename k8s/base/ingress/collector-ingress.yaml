@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: collector-ingress
+  namespace: event-pipeline
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: collector.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: collector-service
+                port:
+                  number: 80

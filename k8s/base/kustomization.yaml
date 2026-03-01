@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - config/app-configmap.yaml
+  - config/app-secrets.yaml
+  - infra/postgres/statefulset.yaml
+  - infra/postgres/service.yaml
+  - infra/redis/deployment.yaml
+  - infra/redis/service.yaml
+  - infra/redpanda/statefulset.yaml
+  - infra/redpanda/service.yaml
+  - infra/redpanda/topic-job.yaml
+  - infra/minio/deployment.yaml
+  - infra/minio/pvc.yaml
+  - infra/minio/service.yaml
+  - infra/minio/bucket-job.yaml
+  - apps/collector/deployment.yaml
+  - apps/collector/service.yaml
+  - apps/query/deployment.yaml
+  - apps/query/service.yaml
+  - apps/worker/deployment.yaml
+  - apps/worker/hpa.yaml
+  - ingress/collector-ingress.yaml
+  - ingress/query-ingress.yaml

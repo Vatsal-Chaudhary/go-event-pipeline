@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector-service
+  namespace: event-pipeline
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: collector-service
+  template:
+    metadata:
+      labels:
+        app: collector-service
+    spec:
+      containers:
+        - name: collector-service
+          image: vatsaldock/collector-service:v2
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: COLLECTOR_PORT
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: KAFKA_BROKERS
+            - name: KAFKA_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: COLLECTOR_KAFKA_TOPIC
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10

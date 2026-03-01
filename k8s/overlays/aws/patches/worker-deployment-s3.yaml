@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-service
+  namespace: event-pipeline
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker-service
+          env:
+            - $patch: replace
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: event-pipeline-secrets
+                  key: DB_URL
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_PORT
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: KAFKA_BROKERS
+            - name: KAFKA_GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_KAFKA_GROUP_ID
+            - name: KAFKA_TOPICS
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_KAFKA_TOPICS
+            - name: BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_BATCH_SIZE
+            - name: FLUSH_INTERVAL_SEC
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_FLUSH_INTERVAL_SEC
+            - name: REDIS_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: REDIS_ADDR
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: AWS_REGION
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: S3_BUCKET
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: event-pipeline-secrets
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: event-pipeline-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
+            - name: ARCHIVE_BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_ARCHIVE_BATCH_SIZE
+            - name: ARCHIVE_FLUSH_INTERVAL_SEC
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_ARCHIVE_FLUSH_INTERVAL_SEC
+            - name: ARCHIVE_PREFIX_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_ARCHIVE_PREFIX_MODE
+            - name: ARCHIVE_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_ARCHIVE_BACKEND
+            - name: FRAUD_IP_WINDOW_SEC
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_FRAUD_IP_WINDOW_SEC
+            - name: FRAUD_IP_THRESHOLD
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_FRAUD_IP_THRESHOLD

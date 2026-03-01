@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-service
+  namespace: event-pipeline
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: worker-service
+  template:
+    metadata:
+      labels:
+        app: worker-service
+    spec:
+      containers:
+        - name: worker-service
+          image: vatsaldock/worker-service:v3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          env:
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: event-pipeline-secrets
+                  key: DB_URL
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_PORT
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: KAFKA_BROKERS
+            - name: KAFKA_GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_KAFKA_GROUP_ID
+            - name: KAFKA_TOPICS
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_KAFKA_TOPICS
+            - name: BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_BATCH_SIZE
+            - name: FLUSH_INTERVAL_SEC
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_FLUSH_INTERVAL_SEC
+            - name: REDIS_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: REDIS_ADDR
+            - name: MINIO_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: MINIO_ENDPOINT
+            - name: MINIO_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: MINIO_BUCKET
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: AWS_REGION
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: S3_BUCKET
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: event-pipeline-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: event-pipeline-secrets
+                  key: MINIO_SECRET_KEY
+            - name: ARCHIVE_BATCH_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_ARCHIVE_BATCH_SIZE
+            - name: ARCHIVE_FLUSH_INTERVAL_SEC
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_ARCHIVE_FLUSH_INTERVAL_SEC
+            - name: ARCHIVE_PREFIX_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_ARCHIVE_PREFIX_MODE
+            - name: ARCHIVE_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_ARCHIVE_BACKEND
+            - name: FRAUD_IP_WINDOW_SEC
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_FRAUD_IP_WINDOW_SEC
+            - name: FRAUD_IP_THRESHOLD
+              valueFrom:
+                configMapKeyRef:
+                  name: event-pipeline-config
+                  key: WORKER_FRAUD_IP_THRESHOLD

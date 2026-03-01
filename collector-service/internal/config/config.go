@@ -18,6 +18,11 @@ func LoadConfig() (*Config, error) {
 	_ = viper.ReadInConfig()
 
 	viper.AutomaticEnv()
+	for _, key := range []string{"PORT", "KAFKA_BROKERS", "KAFKA_TOPIC"} {
+		if err := viper.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("bind env %s: %w", key, err)
+		}
+	}
 
 	// Set default topic
 	viper.SetDefault("KAFKA_TOPIC", "raw-events")
@@ -32,6 +37,9 @@ func LoadConfig() (*Config, error) {
 	}
 	if len(c.KafkaBrokers) == 0 {
 		return nil, fmt.Errorf("KAFKA_BROKERS is required")
+	}
+	if c.Port == "" {
+		return nil, fmt.Errorf("PORT is required")
 	}
 
 	return &c, nil

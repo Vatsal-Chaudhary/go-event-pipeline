@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redpanda-topic-init
+  namespace: event-pipeline
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: topic-init
+          image: redpandadata/redpanda:v24.2.4
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until rpk cluster info --brokers redpanda:9092 >/dev/null 2>&1; do
+                sleep 2
+              done
+              rpk topic create raw-events --brokers redpanda:9092 --partitions 6 --replicas 1 || true

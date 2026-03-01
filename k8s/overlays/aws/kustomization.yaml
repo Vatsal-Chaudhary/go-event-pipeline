@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patchesStrategicMerge:
+  - patches/configmap-aws.yaml
+  - patches/worker-deployment-s3.yaml
+  - patches/delete-minio-deployment.yaml
+  - patches/delete-minio-service.yaml
+  - patches/delete-minio-pvc.yaml
+  - patches/delete-minio-bucket-job.yaml

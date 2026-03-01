@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: query-ingress
+  namespace: event-pipeline
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: query.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: query-service
+                port:
+                  number: 80

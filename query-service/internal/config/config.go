@@ -15,6 +15,11 @@ func LoadConfig() (*Config, error) {
 	viper.SetConfigFile(".env")
 	_ = viper.ReadInConfig()
 	viper.AutomaticEnv()
+	for _, key := range []string{"DB_URL", "PORT"} {
+		if err := viper.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("bind env %s: %w", key, err)
+		}
+	}
 
 	var c Config
 	if err := viper.Unmarshal(&c); err != nil {

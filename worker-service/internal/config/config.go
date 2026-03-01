@@ -29,22 +29,42 @@ type Config struct {
 	MinIOSecretKey string `mapstructure:"MINIO_SECRET_KEY"`
 	MinIOBucket    string `mapstructure:"MINIO_BUCKET"`
 
+	// AWS S3
+	AWSRegion    string `mapstructure:"AWS_REGION"`
+	AWSAccessKey string `mapstructure:"AWS_ACCESS_KEY_ID"`
+	AWSSecretKey string `mapstructure:"AWS_SECRET_ACCESS_KEY"`
+	S3Bucket     string `mapstructure:"S3_BUCKET"`
+
 	// Archive
+	ArchiveBackend          string `mapstructure:"ARCHIVE_BACKEND"`
 	ArchiveBatchSize        int    `mapstructure:"ARCHIVE_BATCH_SIZE"`
 	ArchiveFlushIntervalSec int    `mapstructure:"ARCHIVE_FLUSH_INTERVAL_SEC"`
 	ArchivePrefixMode       string `mapstructure:"ARCHIVE_PREFIX_MODE"`
 
 	// Fraud scoring
-	FraudMode        string `mapstructure:"FRAUD_MODE"`
-	FraudEndpoint    string `mapstructure:"FRAUD_ENDPOINT"`
-	FraudIPWindowSec int    `mapstructure:"FRAUD_IP_WINDOW_SEC"`
-	FraudIPThreshold int    `mapstructure:"FRAUD_IP_THRESHOLD"`
+	FraudIPWindowSec int `mapstructure:"FRAUD_IP_WINDOW_SEC"`
+	FraudIPThreshold int `mapstructure:"FRAUD_IP_THRESHOLD"`
 }
 
 func LoadConfig() (*Config, error) {
 	viper.SetConfigFile(".env")
 	_ = viper.ReadInConfig()
 	viper.AutomaticEnv()
+	for _, key := range []string{
+		"DB_URL", "PORT",
+		"KAFKA_BROKERS", "KAFKA_GROUP_ID", "KAFKA_TOPICS",
+		"BATCH_SIZE", "FLUSH_INTERVAL_SEC",
+		"REDIS_ADDR",
+		"MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET",
+		"AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3_BUCKET",
+		"ARCHIVE_BACKEND",
+		"ARCHIVE_BATCH_SIZE", "ARCHIVE_FLUSH_INTERVAL_SEC", "ARCHIVE_PREFIX_MODE",
+		"FRAUD_IP_WINDOW_SEC", "FRAUD_IP_THRESHOLD",
+	} {
+		if err := viper.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("bind env %s: %w", key, err)
+		}
+	}
 
 	var c Config
 	err := viper.Unmarshal(&c)
@@ -79,14 +99,20 @@ func (c *Config) validate() error {
 	if c.ArchiveBatchSize <= 0 {
 		c.ArchiveBatchSize = 100
 	}
+	if c.ArchiveBackend == "" {
+		c.ArchiveBackend = "minio"
+	}
 	if c.ArchiveFlushIntervalSec <= 0 {
 		c.ArchiveFlushIntervalSec = 5
 	}
 	if c.ArchivePrefixMode == "" {
 		c.ArchivePrefixMode = "status"
 	}
-	if c.FraudMode == "" {
-		c.FraudMode = "inprocess"
+	if c.AWSRegion == "" {
+		c.AWSRegion = "ap-south-1"
+	}
+	if c.S3Bucket == "" {
+		c.S3Bucket = c.MinIOBucket
 	}
 	if c.FraudIPWindowSec <= 0 {
 		c.FraudIPWindowSec = 300
