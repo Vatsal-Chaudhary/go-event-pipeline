@@ -7,7 +7,11 @@ resources:
 patchesStrategicMerge:
   - patches/configmap-aws.yaml
   - patches/worker-deployment-s3.yaml
+  - patches/aws-replica-tuning.yaml
+  - patches/delete-worker-hpa.yaml
   - patches/delete-minio-deployment.yaml
   - patches/delete-minio-service.yaml
   - patches/delete-minio-pvc.yaml
   - patches/delete-minio-bucket-job.yaml
+  - patches/delete-postgres-statefulset.yaml
+  - patches/delete-postgres-service.yaml

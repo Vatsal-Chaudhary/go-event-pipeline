@@ -17,6 +17,9 @@ spec:
       containers:
         - name: redpanda
           image: redpandadata/redpanda:v24.2.4
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
           args:
             - redpanda
             - start

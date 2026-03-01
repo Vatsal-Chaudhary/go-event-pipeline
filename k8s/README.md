@@ -31,6 +31,12 @@ Apply AWS overlay:
 kubectl apply -k k8s/overlays/aws
 ```
 
+AWS overlay behavior:
+- uses S3 archiving (`WORKER_ARCHIVE_BACKEND=s3`)
+- removes in-cluster MinIO resources
+- removes in-cluster Postgres resources (apps use RDS via `DB_URL` secret)
+- tunes app replicas to 1 each and removes worker HPA for small dev clusters
+
 Current defaults in manifests:
 - `raw-events` topic is created with `6` partitions (`k8s/base/infra/redpanda/topic-job.yaml`)
 - `worker-service` runs with `3` replicas (`k8s/base/apps/worker/deployment.yaml`)
