@@ -7,8 +7,8 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  name_prefix = "${var.project_name}-${var.environment}"
-  azs         = slice(data.aws_availability_zones.available.names, 0, 2)
+  name_prefix     = "${var.project_name}-${var.environment}"
+  azs             = slice(data.aws_availability_zones.available.names, 0, 2)
   node_subnet_ids = var.use_public_subnets_for_nodes ? module.vpc.public_subnets : module.vpc.private_subnets
 }
 
@@ -23,8 +23,8 @@ module "vpc" {
   private_subnets = [for idx, _ in local.azs : cidrsubnet(var.vpc_cidr, 4, idx)]
   public_subnets  = [for idx, _ in local.azs : cidrsubnet(var.vpc_cidr, 4, idx + 8)]
 
-  enable_nat_gateway = var.enable_nat_gateway
-  single_nat_gateway = true
+  enable_nat_gateway      = var.enable_nat_gateway
+  single_nat_gateway      = true
   map_public_ip_on_launch = true
 
   tags = {
@@ -42,6 +42,12 @@ module "eks" {
 
   cluster_endpoint_public_access = true
 
+  cluster_addons = {
+    aws-ebs-csi-driver = {
+      most_recent = true
+    }
+  }
+
   vpc_id     = module.vpc.vpc_id
   subnet_ids = concat(module.vpc.private_subnets, module.vpc.public_subnets)
 
@@ -54,6 +60,9 @@ module "eks" {
       min_size       = var.eks_node_min_size
       max_size       = var.eks_node_max_size
       subnet_ids     = local.node_subnet_ids
+      iam_role_additional_policies = {
+        AmazonEBSCSIDriverPolicy = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+      }
     }
   }
 
@@ -78,4 +87,37 @@ module "data_platform" {
   db_allocated_storage = var.db_allocated_storage
 
   redis_node_type = var.redis_node_type
+}
+
+data "aws_iam_policy_document" "worker_s3_archive" {
+  statement {
+    sid = "AllowListArchiveBucket"
+    actions = [
+      "s3:ListBucket",
+    ]
+    resources = [
+      "arn:aws:s3:::${module.data_platform.s3_bucket_name}",
+    ]
+  }
+
+  statement {
+    sid = "AllowWriteArchiveObjects"
+    actions = [
+      "s3:PutObject",
+      "s3:AbortMultipartUpload",
+    ]
+    resources = [
+      "arn:aws:s3:::${module.data_platform.s3_bucket_name}/*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "worker_s3_archive" {
+  name   = "${local.name_prefix}-worker-s3-archive"
+  policy = data.aws_iam_policy_document.worker_s3_archive.json
+}
+
+resource "aws_iam_role_policy_attachment" "worker_s3_archive" {
+  role       = module.eks.eks_managed_node_groups["default"].iam_role_name
+  policy_arn = aws_iam_policy.worker_s3_archive.arn
 }

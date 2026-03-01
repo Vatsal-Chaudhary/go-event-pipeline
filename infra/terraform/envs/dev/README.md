@@ -3,15 +3,18 @@
 This stack provisions:
 - VPC (public/private subnets + NAT)
 - EKS cluster + managed node group
+- EKS EBS CSI addon
 - S3 archive bucket with lifecycle rules
 - ElastiCache Redis
 - RDS PostgreSQL
+- Node role policies for EBS CSI and S3 archive writes
 
 Cost-aware defaults for short-lived dev testing:
 - EKS nodes run as `t3.small` (desired 1)
 - NAT gateway is disabled by default (`enable_nat_gateway = false`)
 - EKS nodes use public subnets in dev (`use_public_subnets_for_nodes = true`)
 - RDS and Redis use micro classes
+- Public subnets map public IPs on launch for dev nodegroups
 
 ## Usage
 
