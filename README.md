@@ -98,8 +98,6 @@ Collected runtime screenshots are stored in `docs/assets/screenshots/`.
 ![S3 Archive Prefix Counts](docs/assets/screenshots/04-s3-prefix-counts.png)
 ![K9s Runtime View](docs/assets/screenshots/05-k9s-runtime.png)
 
-For screenshot capture commands and naming conventions, see `docs/screenshots.md`.
-
 ## Notes
 
 - This project is tuned as a portfolio-grade system with practical reliability checks.
