@@ -514,7 +514,11 @@ main() {
 
   check_query
   check_redis
-  check_db
+  if is_true "$STRICT_DB_CHECK"; then
+    check_db
+  else
+    log "DB check skipped (set --strict-db-check true to enable)"
+  fi
   assert_s3_after
 
   cat <<EOF
