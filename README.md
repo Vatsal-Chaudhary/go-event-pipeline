@@ -1,127 +1,106 @@
 # Go Event Pipeline
 
-Simple event pipeline using Go, Redpanda (Kafka), Redis, PostgreSQL, and MinIO.
+Event-driven analytics pipeline in Go with local and AWS deployment paths.
 
-## Flow
+Core runtime flow:
 
-`collector-service` -> Kafka `raw-events` -> `worker-service`
+`collector-service` -> Kafka topic `raw-events` -> `worker-service` -> `query-service`
 
-Worker does:
+Worker flow per event:
 - archive `raw`
-- dedupe by `event_id`
-- fraud check by IP threshold (in-process Redis logic)
-- archive `duplicate` / `fraud` / `accepted`
-- persist only accepted events to PostgreSQL
+- dedupe by `event_id` in Redis
+- fraud score by IP window in Redis
+- classify `duplicate` / `fraud` / `accepted`
+- archive final status
+- persist only accepted events to Postgres and upsert campaign aggregates
 
-## Project Highlights
+## Architecture
 
-- Event-driven processing with clear stage boundaries: ingest, dedupe, fraud scoring, archive, persistence.
-- Idempotency-first worker path using Redis dedupe keying on `event_id`.
-- Cost-conscious archival design: batched NDJSON + gzip objects with status prefixes for retention policies.
-- Operational focus: graceful shutdown flushing, background batch uploader, and strict end-to-end smoke testing.
-- Kubernetes-ready manifests with resource requests/limits, HPA, and topic/bootstrap jobs for reproducible bring-up.
+Services:
+- `collector-service`: ingest API (`POST /event`, `POST /events/batch`)
+- `worker-service`: async processing, dedupe, fraud scoring, archive, persistence
+- `query-service`: read API (`GET /campaigns`, `GET /campaigns/:id`)
 
-## Tradeoffs
+Data and infra:
+- Kafka: Redpanda
+- Redis: dedupe and fraud counters
+- Postgres: `raw_events`, `campaign_stats`
+- Archive: MinIO locally, S3 on AWS
 
-- Fraud scoring is in-process (worker + Redis) for lower latency and simpler operations; this reduces independent deployability compared to a separate fraud service.
-- Redis-backed counters use TTL windows (simple and fast) but are approximate under highly distributed traffic compared to full sliding-window analytics.
-- Worker is scaled with Kafka consumer groups; throughput is bounded by topic partitions.
-- K8s local stack runs stateful infra in-cluster for demo simplicity; production should prefer managed services (RDS, ElastiCache, S3, MSK).
-- Current reliability posture is pragmatic for a portfolio project; production hardening would add DLQ/replay pipelines, stronger observability, and tighter IAM/secret management.
+## Repo layout
 
-Archive files are batched NDJSON + gzip in MinIO:
-- `raw/YYYY/MM/DD/HH/batch_*.ndjson.gz`
-- `duplicate/YYYY/MM/DD/HH/batch_*.ndjson.gz`
-- `fraud/YYYY/MM/DD/HH/batch_*.ndjson.gz`
-- `accepted/YYYY/MM/DD/HH/batch_*.ndjson.gz`
+- `collector-service/`
+- `worker-service/`
+- `query-service/`
+- `k8s/` Kubernetes base and overlays
+- `infra/terraform/` AWS infrastructure
+- `test.sh` full local/k8s integration test
+- `test_ingest.sh` focused ingest test
+- `test_retrieval.sh` focused query test
+- `test_aws.sh` AWS-aware end-to-end test
 
-## Start locally
+## Quick start (local)
 
-1) Start infra:
+1. Start dependencies:
 
 ```bash
 docker compose up -d
 ```
 
-2) Start services in separate terminals:
+2. Start services in separate terminals:
 
 ```bash
 cd collector-service && make run
 cd worker-service && make run
+cd query-service && make run
 ```
 
-3) Run end-to-end smoke test:
+3. Run end-to-end test:
 
 ```bash
 ./test.sh
 ```
 
-## Important env vars
+## Quick start (AWS)
 
-Worker (`worker-service/.env`):
-- `ARCHIVE_BATCH_SIZE=100`
-- `ARCHIVE_FLUSH_INTERVAL_SEC=5`
-- `ARCHIVE_PREFIX_MODE=status`
-- `FRAUD_IP_WINDOW_SEC=300`
-- `FRAUD_IP_THRESHOLD=100`
+Use these docs for full setup:
+- `infra/terraform/envs/dev/README.md`
+- `k8s/README.md`
 
-## Check MinIO archived `.ndjson.gz` files
-
-List archived objects by status prefix:
+Fast test path after deploy (when ingress is not exposed yet):
 
 ```bash
-docker exec minio sh -c "mc alias set local http://localhost:9000 minioadmin minioadmin >/dev/null && mc ls --recursive local/event-archive/raw"
-docker exec minio sh -c "mc ls --recursive local/event-archive/duplicate"
-docker exec minio sh -c "mc ls --recursive local/event-archive/fraud"
-docker exec minio sh -c "mc ls --recursive local/event-archive/accepted"
+kubectl -n event-pipeline port-forward svc/collector-service 3000:80
+kubectl -n event-pipeline port-forward svc/query-service 3002:80
 ```
 
-Copy one gzip file to local machine and inspect NDJSON lines:
+Then run:
 
 ```bash
-# Example: copy first raw file
-OBJ=$(docker exec minio sh -c "mc find local/event-archive/raw --name '*.ndjson.gz' | head -n 1")
-docker exec minio sh -c "mc cp ${OBJ} /tmp/sample.ndjson.gz"
-docker cp minio:/tmp/sample.ndjson.gz /tmp/sample.ndjson.gz
-
-# Inspect
-gzip -dc /tmp/sample.ndjson.gz | head
+./test_ingest.sh --collector-url http://localhost:3000
+./test_retrieval.sh --query-url http://localhost:3002
+./test_aws.sh --collector-url http://localhost:3000 --query-url http://localhost:3002 --strict-s3-check true
 ```
 
-## Notes on test.sh
+## CI/CD
 
-- By default Redis verification is strict (`STRICT_REDIS_CHECK=true`)
-- Test fails if Redis counter reset/read is not possible or mismatched
-- Override only if needed:
+- `.github/workflows/ci.yml`: unit tests + Terraform validate
+- `.github/workflows/infra.yml`: Terraform plan/apply/destroy
+- `.github/workflows/deploy.yml`: build/push images + deploy overlay to EKS
 
-```bash
-STRICT_REDIS_CHECK=false ./test.sh
-```
+## Runtime proof
 
-## Unit tests
+Collected runtime screenshots are stored in `docs/assets/screenshots/`.
 
-Run unit tests per service:
+![Kubernetes Pods](docs/assets/screenshots/01-k8s-pods.png)
+![AWS Test Pass](docs/assets/screenshots/02-aws-test-pass.png)
+![Query Campaign Response](docs/assets/screenshots/03-query-campaign.png)
+![S3 Archive Prefix Counts](docs/assets/screenshots/04-s3-prefix-counts.png)
+![K9s Runtime View](docs/assets/screenshots/05-k9s-runtime.png)
 
-```bash
-cd collector-service && go test ./...
-cd query-service && go test ./...
-cd worker-service && go test ./...
-```
+For screenshot capture commands and naming conventions, see `docs/screenshots.md`.
 
-Current unit test focus:
-- collector: client IP extraction header priority
-- query: service validation and repository error wrapping
-- worker: event validation and hour-bucket helpers
+## Notes
 
-## CI and branch protection
-
-GitHub Actions workflows are split by concern:
-- `.github/workflows/ci.yml` for Go unit tests and Terraform validation
-- `.github/workflows/deploy.yml` for image build/push and Kubernetes deploy
-- `.github/workflows/infra.yml` for Terraform plan/apply pipeline
-
-Recommended branch protection for `main`:
-- require pull requests before merging
-- require status checks to pass (`CI / Unit Tests`, `CI / Terraform Validate`)
-- require branch to be up to date before merging
-- restrict force pushes and branch deletion
+- This project is tuned as a portfolio-grade system with practical reliability checks.
+- Typical production next steps: DLQ + replay pipeline, stronger observability/tracing, and full IRSA least-privilege IAM.

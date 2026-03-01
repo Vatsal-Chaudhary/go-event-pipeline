@@ -1,48 +1,73 @@
 # Dev AWS Foundation (Terraform)
 
-This stack provisions:
-- VPC (public/private subnets + NAT)
+Terraform stack for running the event pipeline on AWS dev infrastructure.
+
+## What this stack creates
+
+- VPC with public/private subnets
 - EKS cluster + managed node group
 - EKS EBS CSI addon
 - S3 archive bucket with lifecycle rules
 - ElastiCache Redis
 - RDS PostgreSQL
-- Node role policies for EBS CSI and S3 archive writes
+- IAM policies for EBS CSI and worker S3 archive writes
 
-Cost-aware defaults for short-lived dev testing:
-- EKS nodes run as `t3.small` (desired 1)
-- NAT gateway is disabled by default (`enable_nat_gateway = false`)
-- EKS nodes use public subnets in dev (`use_public_subnets_for_nodes = true`)
-- RDS and Redis use micro classes
-- Public subnets map public IPs on launch for dev nodegroups
+## Dev defaults
+
+- small instance sizes for cost control
+- NAT disabled by default
+- nodes can run in public subnets for simpler dev bring-up
+- public subnets map public IPs on launch (for dev nodegroup compatibility)
 
 ## Usage
-
-1) Copy tfvars:
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-2) Edit `terraform.tfvars` (especially `db_password`).
+Edit `terraform.tfvars`:
+- `aws_region`
+- `db_password`
 
-3) Initialize and apply:
+Apply:
 
 ```bash
 terraform init
-terraform plan
-terraform apply
+terraform plan -out plan.out
+terraform apply plan.out
 ```
 
-## Notes
+## Helpful outputs
 
-- This is a dev baseline with small instance classes.
-- EKS control plane itself is billed hourly by AWS even for short runs.
-- Destroy the stack after testing to avoid ongoing cost:
+```bash
+terraform output
+terraform output -raw eks_cluster_name
+terraform output -raw s3_bucket_name
+terraform output -raw redis_endpoint
+terraform output -raw rds_endpoint
+```
+
+Export for convenience:
+
+```bash
+export EKS_CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
+export S3_BUCKET=$(terraform output -raw s3_bucket_name)
+export REDIS_ENDPOINT=$(terraform output -raw redis_endpoint)
+export RDS_ENDPOINT=$(terraform output -raw rds_endpoint)
+```
+
+## Cost note
+
+This is still billable even when app traffic is low. Main contributors are EKS control plane, nodes, RDS, and ElastiCache.
+
+## Destroy when done
 
 ```bash
 terraform destroy
 ```
-- RDS is private, non-public, `skip_final_snapshot = true`.
-- S3 lifecycle rules are set for `raw/`, `duplicate/`, `fraud/`, `accepted/` prefixes.
-- MSK is intentionally not included yet.
+
+## Known design choices
+
+- RDS is private and encrypted, with `skip_final_snapshot = true` for fast dev teardown.
+- S3 lifecycle rules are configured for `raw/`, `duplicate/`, `fraud/`, and `accepted/` prefixes.
+- Kafka is currently in-cluster Redpanda; managed Kafka can be added later.

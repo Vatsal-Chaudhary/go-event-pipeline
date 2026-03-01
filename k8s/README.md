@@ -1,50 +1,58 @@
 # Kubernetes Manifests
 
-This folder is organized so Terraform can later apply environment-specific overlays without changing app manifests.
+Kubernetes manifests are split to keep app definitions reusable across local and AWS.
 
-Structure:
-- `base/`: reusable manifests (namespace, infra, apps, ingress)
+## Layout
+
+- `base/`: shared manifests (namespace, infra, apps, ingress)
 - `overlays/local/`: local/dev overlay
-- `overlays/aws/`: AWS overlay (S3 archive backend, removes in-cluster MinIO)
+- `overlays/aws/`: AWS runtime overlay
 
-Before applying:
-- Build and push images for `collector-service`, `worker-service`, and `query-service`
-- Update image names in:
-  - `k8s/base/apps/collector/deployment.yaml`
-  - `k8s/base/apps/worker/deployment.yaml`
-  - `k8s/base/apps/query/deployment.yaml`
-
-Apply local overlay:
+## Local apply
 
 ```bash
 kubectl apply -k k8s/overlays/local
 ```
 
-Apply AWS overlay:
+## AWS apply
 
-1) Update `k8s/overlays/aws/patches/configmap-aws.yaml`:
-- set `S3_BUCKET` to Terraform output bucket name
-
-2) Apply:
+1. Ensure `event-pipeline` namespace exists and `event-pipeline-secrets` is created.
+2. Ensure `event-pipeline-config` has runtime values (`S3_BUCKET`, `REDIS_ADDR`, etc.).
+3. Apply overlay:
 
 ```bash
 kubectl apply -k k8s/overlays/aws
 ```
 
-AWS overlay behavior:
-- uses S3 archiving (`WORKER_ARCHIVE_BACKEND=s3`)
+## AWS overlay behavior
+
+- sets worker archive backend to S3
 - removes in-cluster MinIO resources
-- removes in-cluster Postgres resources (apps use RDS via `DB_URL` secret)
-- tunes app replicas to 1 each and removes worker HPA for small dev clusters
+- removes in-cluster Postgres resources (apps use RDS via `DB_URL`)
+- sets collector/worker/query replicas to 1 for small dev clusters
+- removes worker HPA in AWS overlay to avoid noisy autoscaling dependencies
 
-Current defaults in manifests:
-- `raw-events` topic is created with `6` partitions (`k8s/base/infra/redpanda/topic-job.yaml`)
-- `worker-service` runs with `3` replicas (`k8s/base/apps/worker/deployment.yaml`)
-- `worker-service` has CPU/memory requests+limits and HPA 3-6 replicas (`k8s/base/apps/worker/hpa.yaml`)
+## Validation commands
 
-HPA note:
-- autoscaling needs metrics-server in the cluster.
+```bash
+kubectl -n event-pipeline get pods
+kubectl -n event-pipeline rollout status deploy/collector-service
+kubectl -n event-pipeline rollout status deploy/worker-service
+kubectl -n event-pipeline rollout status deploy/query-service
+```
 
-Notes:
-- Worker runs DB migrations from `file://internal/db/migrations`; your worker image must include `internal/db/migrations`.
-- Secrets in `base` are dev defaults. Replace with external secret management for non-local environments.
+## Access for testing
+
+If ingress controller is not installed, use port-forward:
+
+```bash
+kubectl -n event-pipeline port-forward svc/collector-service 3000:80
+kubectl -n event-pipeline port-forward svc/query-service 3002:80
+```
+
+Then run project tests from repo root.
+
+## Notes
+
+- Worker DB migrations run at startup; worker image must include `internal/db/migrations`.
+- Base secrets are dev defaults only; for non-local environments, provide secrets at deploy time.
