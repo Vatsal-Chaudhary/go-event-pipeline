@@ -2,8 +2,10 @@
 
 set -euo pipefail
 
+TEST_ENV="${TEST_ENV:-compose}"
+
 COLLECTOR_URL="${COLLECTOR_URL:-http://localhost:3000}"
-FRAUD_INVOKE_URL="${FRAUD_INVOKE_URL:-http://localhost:9090/score}"
+QUERY_URL="${QUERY_URL:-http://localhost:3002}"
 
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-postgres}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
@@ -15,10 +17,12 @@ REDIS_CONTAINER="${REDIS_CONTAINER:-redis}"
 STRICT_REDIS_CHECK="${STRICT_REDIS_CHECK:-true}"
 
 MINIO_CONTAINER="${MINIO_CONTAINER:-minio}"
-MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://localhost:9000}"
+MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://127.0.0.1:9000}"
 MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-minioadmin}"
 MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-minioadmin}"
 MINIO_BUCKET="${MINIO_BUCKET:-event-archive}"
+
+K8S_NAMESPACE="${K8S_NAMESPACE:-event-pipeline}"
 
 FRAUD_THRESHOLD="${FRAUD_THRESHOLD:-100}"
 default_hot_ip() {
@@ -68,38 +72,100 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
-redis_del_key() {
-  local key="$1"
+usage() {
+  cat <<EOF
+Usage: ./test.sh [flags]
+
+Flags:
+  --mode <compose|k8s>        Test environment mode
+  --collector-url <url>       Collector base URL
+  --query-url <url>           Query-service base URL
+  -h, --help                  Show this help
+
+Examples:
+  ./test.sh
+  ./test.sh --mode k8s --collector-url http://collector.local --query-url http://query.local
+  ./test.sh --mode k8s --collector-url http://localhost:3000 --query-url http://localhost:3002
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --mode)
+        TEST_ENV="$2"
+        shift 2
+        ;;
+      --collector-url)
+        COLLECTOR_URL="$2"
+        shift 2
+        ;;
+      --query-url)
+        QUERY_URL="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        fail "unknown argument: $1"
+        ;;
+    esac
+  done
+}
+
+is_k8s() {
+  [[ "$TEST_ENV" == "k8s" ]]
+}
+
+k8s_first_pod() {
+  local label="$1"
+  kubectl -n "$K8S_NAMESPACE" get pods -l "$label" -o jsonpath='{.items[0].metadata.name}'
+}
+
+redis_exec() {
+  if is_k8s; then
+    local redis_pod
+    redis_pod="$(k8s_first_pod app=redis)"
+    [[ -n "$redis_pod" ]] || return 1
+    kubectl -n "$K8S_NAMESPACE" exec "$redis_pod" -- redis-cli "$@"
+    return 0
+  fi
+
   if command -v redis-cli >/dev/null 2>&1; then
-    redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" DEL "$key" >/dev/null
+    redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@"
     return 0
   fi
 
   if docker ps --format '{{.Names}}' | grep -q "^${REDIS_CONTAINER}$"; then
-    docker exec "$REDIS_CONTAINER" redis-cli DEL "$key" >/dev/null
+    docker exec "$REDIS_CONTAINER" redis-cli "$@"
     return 0
   fi
 
   return 1
+}
+
+redis_del_key() {
+  local key="$1"
+  redis_exec DEL "$key" >/dev/null
 }
 
 redis_get_key() {
   local key="$1"
-  if command -v redis-cli >/dev/null 2>&1; then
-    redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" GET "$key"
-    return 0
-  fi
-
-  if docker ps --format '{{.Names}}' | grep -q "^${REDIS_CONTAINER}$"; then
-    docker exec "$REDIS_CONTAINER" redis-cli GET "$key"
-    return 0
-  fi
-
-  return 1
+  redis_exec GET "$key"
 }
 
 db_scalar() {
   local sql="$1"
+  if is_k8s; then
+    local postgres_pod
+    postgres_pod="$(k8s_first_pod app=postgres)"
+    [[ -n "$postgres_pod" ]] || return 1
+    kubectl -n "$K8S_NAMESPACE" exec "$postgres_pod" -- psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$sql" | tr -d '[:space:]'
+    return 0
+  fi
+
   docker exec -i "$POSTGRES_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$sql" | tr -d '[:space:]'
 }
 
@@ -134,6 +200,10 @@ send_event() {
 
 minio_count_prefix() {
   local prefix="$1"
+  if is_k8s; then
+    fail "minio_count_prefix is not supported in k8s mode"
+  fi
+
   docker exec "$MINIO_CONTAINER" sh -c "mc alias set local ${MINIO_ENDPOINT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} >/dev/null 2>&1 && mc find local/${MINIO_BUCKET}/${prefix} --name '*.ndjson.gz' 2>/dev/null | wc -l" | tr -d '[:space:]'
 }
 
@@ -157,8 +227,17 @@ wait_for_db_rows() {
 }
 
 main() {
+  parse_args "$@"
+
+  [[ "$TEST_ENV" == "compose" || "$TEST_ENV" == "k8s" ]] || fail "invalid --mode: $TEST_ENV (use compose or k8s)"
+
   require_cmd curl
-  require_cmd docker
+  if is_k8s; then
+    require_cmd kubectl
+    kubectl get namespace "$K8S_NAMESPACE" >/dev/null 2>&1 || fail "k8s namespace not found: $K8S_NAMESPACE"
+  else
+    require_cmd docker
+  fi
 
   log "Run ID: ${RUN_ID}"
   log "Campaign ID: ${CAMPAIGN_ID}"
@@ -167,9 +246,8 @@ main() {
   log "Preflight: collector health"
   curl -fsS "${COLLECTOR_URL}/health" >/dev/null || fail "collector health check failed at ${COLLECTOR_URL}/health"
 
-  log "Preflight: fraud-service score endpoint"
-  curl -fsS -X POST "${FRAUD_INVOKE_URL}" -H "Content-Type: application/json" -d '{"ip_address":"127.0.0.1","user_id":"preflight"}' >/dev/null \
-    || fail "fraud service score call failed at ${FRAUD_INVOKE_URL}"
+  log "Preflight: query-service health"
+  curl -fsS "${QUERY_URL}/health" >/dev/null || fail "query-service health check failed at ${QUERY_URL}/health"
 
   log "Resetting hot IP counter in Redis: ${HOT_KEY}"
   if ! redis_del_key "$HOT_KEY"; then
@@ -204,13 +282,15 @@ main() {
   local fraud_before="0"
   local accepted_before="0"
 
-  if docker ps --format '{{.Names}}' | grep -q "^${MINIO_CONTAINER}$"; then
+  if ! is_k8s && docker ps --format '{{.Names}}' | grep -q "^${MINIO_CONTAINER}$"; then
     minio_enabled="true"
     log "Capturing MinIO prefix counts before test"
     raw_before=$(minio_count_prefix "raw")
     dup_before=$(minio_count_prefix "duplicate")
     fraud_before=$(minio_count_prefix "fraud")
     accepted_before=$(minio_count_prefix "accepted")
+  elif is_k8s; then
+    warn "minio object checks are skipped in k8s mode"
   else
     warn "minio container not running; archive prefix assertions skipped"
   fi
@@ -243,6 +323,15 @@ main() {
   [[ "$risk_gt80_count" == "0" ]] || fail "found persisted rows with risk_score > 80 (should be 0): got=${risk_gt80_count}"
 
   log "DB assertions passed"
+
+  log "Validating query-service endpoints"
+  curl -fsS "${QUERY_URL}/campaigns" >/tmp/query_campaigns_resp.txt || fail "query-service /campaigns request failed"
+  grep -q '"data"' /tmp/query_campaigns_resp.txt || fail "query-service /campaigns response missing data field"
+
+  local query_status
+  query_status=$(curl -s -o /tmp/query_campaign_resp.txt -w "%{http_code}" "${QUERY_URL}/campaigns/${CAMPAIGN_ID}")
+  [[ "$query_status" == "200" ]] || fail "query-service /campaigns/${CAMPAIGN_ID} returned HTTP ${query_status}, body=$(cat /tmp/query_campaign_resp.txt)"
+  grep -q "${CAMPAIGN_ID}" /tmp/query_campaign_resp.txt || fail "query-service /campaigns/${CAMPAIGN_ID} response missing campaign id"
 
   {
     local hot_count
