@@ -1,0 +1,120 @@
+name: Deploy App
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to build/deploy (default: commit SHA)"
+        required: false
+        type: string
+
+env:
+  AWS_REGION: ap-south-1
+
+jobs:
+  build-push:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "image_tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push collector-service
+        uses: docker/build-push-action@v6
+        with:
+          context: ./collector-service
+          file: ./collector-service/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/collector-service:${{ steps.tag.outputs.image_tag }}
+
+      - name: Build and push worker-service
+        uses: docker/build-push-action@v6
+        with:
+          context: ./worker-service
+          file: ./worker-service/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/worker-service:${{ steps.tag.outputs.image_tag }}
+
+      - name: Build and push query-service
+        uses: docker/build-push-action@v6
+        with:
+          context: ./query-service
+          file: ./query-service/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/query-service:${{ steps.tag.outputs.image_tag }}
+
+  deploy-eks:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: build-push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: aws eks update-kubeconfig --region $AWS_REGION --name "${{ secrets.EKS_CLUSTER_NAME }}"
+
+      - name: Ensure namespace and secret
+        run: |
+          kubectl create namespace event-pipeline --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n event-pipeline create secret generic event-pipeline-secrets \
+            --from-literal=DB_URL="${{ secrets.DB_URL }}" \
+            --from-literal=POSTGRES_USER="postgres" \
+            --from-literal=POSTGRES_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --from-literal=MINIO_ACCESS_KEY="unused" \
+            --from-literal=MINIO_SECRET_KEY="unused" \
+            --from-literal=AWS_ACCESS_KEY_ID="" \
+            --from-literal=AWS_SECRET_ACCESS_KEY="" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply AWS overlay
+        run: kubectl apply -k k8s/overlays/aws
+
+      - name: Patch runtime endpoints
+        run: |
+          kubectl -n event-pipeline patch configmap event-pipeline-config --type merge -p '{"data": {"S3_BUCKET": "${{ secrets.S3_BUCKET }}", "REDIS_ADDR": "${{ secrets.REDIS_ADDR }}", "AWS_REGION": "ap-south-1", "WORKER_ARCHIVE_BACKEND": "s3"}}'
+
+      - name: Set deployment images
+        run: |
+          TAG="${{ needs.build-push.outputs.image_tag }}"
+          kubectl -n event-pipeline set image deploy/collector-service collector-service=${{ secrets.DOCKERHUB_USERNAME }}/collector-service:${TAG}
+          kubectl -n event-pipeline set image deploy/worker-service worker-service=${{ secrets.DOCKERHUB_USERNAME }}/worker-service:${TAG}
+          kubectl -n event-pipeline set image deploy/query-service query-service=${{ secrets.DOCKERHUB_USERNAME }}/query-service:${TAG}
+
+      - name: Wait for rollouts
+        run: |
+          kubectl -n event-pipeline rollout status deploy/collector-service --timeout=10m
+          kubectl -n event-pipeline rollout status deploy/worker-service --timeout=10m
+          kubectl -n event-pipeline rollout status deploy/query-service --timeout=10m
+
+      - name: Show pods
+        run: kubectl -n event-pipeline get pods -o wide

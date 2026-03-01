@@ -1,0 +1,21 @@
+aws_region   = "ap-south-1"
+project_name = "go-event-pipeline"
+environment  = "dev"
+
+vpc_cidr = "10.30.0.0/16"
+
+eks_cluster_version    = "1.30"
+eks_node_instance_types = ["t3.small"]
+eks_node_desired_size  = 1
+eks_node_min_size      = 1
+eks_node_max_size      = 2
+enable_nat_gateway     = false
+use_public_subnets_for_nodes = true
+
+db_name           = "analytics"
+db_username       = "postgres"
+db_password       = "replace-with-strong-password"
+db_instance_class = "db.t4g.micro"
+
+db_allocated_storage = 20
+redis_node_type      = "cache.t4g.micro"

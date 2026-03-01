@@ -1,0 +1,339 @@
+AWS Deployment Plan (Terraform + EKS + S3 + ElastiCache + RDS)
+
+Goal
+- Deploy this project to AWS in a cost-aware dev environment.
+- Use Terraform for infra.
+- Run apps on EKS.
+- Use S3 for archive, ElastiCache Redis, RDS Postgres.
+
+Important Security Rule
+- Do NOT paste long-lived AWS access keys into app .env files in repo.
+- Preferred auth for pods: IRSA (IAM Role for Service Account).
+- For local Terraform execution, use AWS CLI profile or SSO session.
+
+============================================================
+0) Preconditions
+============================================================
+
+Local tools to install
+- aws cli v2
+- terraform >= 1.6
+- kubectl
+- helm
+
+Verify
+1) aws --version
+2) terraform -version
+3) kubectl version --client
+4) helm version
+
+Project paths
+- Terraform env: infra/terraform/envs/dev
+- AWS k8s overlay: k8s/overlays/aws
+
+============================================================
+1) AWS Account Setup (one-time)
+============================================================
+
+Recommended IAM model
+- Create an IAM role/user dedicated for Terraform (dev only) with least privilege.
+- If using IAM user, use AWS CLI profile locally and do NOT commit credentials.
+
+Minimum services needed permissions for Terraform role/user
+- VPC/EC2 networking
+- IAM/EKS
+- S3
+- ElastiCache
+- RDS
+- CloudWatch logs (optional, useful)
+
+Optional but recommended
+- Create AWS Budgets alert for dev account.
+- Enable Cost Explorer.
+
+============================================================
+2) Configure Local AWS Access
+============================================================
+
+Option A: access key profile (simple)
+1) aws configure --profile event-pipeline-dev
+2) export AWS_PROFILE=event-pipeline-dev
+
+Option B: AWS SSO profile (better)
+1) aws configure sso
+2) aws sso login --profile <your-sso-profile>
+3) export AWS_PROFILE=<your-sso-profile>
+
+Confirm identity
+1) aws sts get-caller-identity
+
+============================================================
+3) Terraform: Create Dev Infra
+============================================================
+
+Go to env folder
+1) cd infra/terraform/envs/dev
+
+Prepare vars
+1) cp terraform.tfvars.example terraform.tfvars
+2) edit terraform.tfvars:
+   - db_password = strong password
+   - aws_region = ap-south-1
+
+Init/plan/apply
+1) terraform init
+2) terraform plan -out plan.out
+3) terraform apply plan.out
+
+Capture outputs
+1) terraform output
+2) note values for:
+   - eks_cluster_name
+   - s3_bucket_name
+   - redis_endpoint
+   - rds_endpoint
+
+Cost note (dev defaults already optimized)
+- NAT disabled by default
+- small node sizes
+- still billed: EKS control plane + RDS + Redis + EBS
+
+============================================================
+4) Connect kubectl to EKS
+============================================================
+
+1) aws eks update-kubeconfig --region ap-south-1 --name <eks_cluster_name>
+2) kubectl get nodes
+
+============================================================
+5) Update K8s AWS Overlay Values
+============================================================
+
+Edit file
+- k8s/overlays/aws/patches/configmap-aws.yaml
+
+Set
+- WORKER_ARCHIVE_BACKEND: "s3"
+- AWS_REGION: "ap-south-1"
+- S3_BUCKET: "<terraform output s3_bucket_name>"
+
+Redis and DB endpoints
+- These are currently in base config; for AWS deployment, patch them in an aws overlay patch (recommended).
+- Use values from Terraform output:
+  - REDIS_ADDR=<redis_endpoint>:6379
+  - DB_URL=postgres://<user>:<pass>@<rds_endpoint>:5432/<db>?sslmode=require (or disable only if explicitly needed)
+
+Important
+- Do not store DB password in Git-tracked manifest.
+- Put DB URL/password in Kubernetes Secret created at deploy time.
+
+============================================================
+6) App Images
+============================================================
+
+Build/push images (example tags)
+1) docker build -t vatsaldock/collector-service:vX -f collector-service/Dockerfile collector-service
+2) docker push vatsaldock/collector-service:vX
+3) docker build -t vatsaldock/worker-service:vX -f worker-service/Dockerfile worker-service
+4) docker push vatsaldock/worker-service:vX
+5) docker build -t vatsaldock/query-service:vX -f query-service/Dockerfile query-service
+6) docker push vatsaldock/query-service:vX
+
+Update image tags in base deployment yamls or in aws overlay patch.
+
+============================================================
+7) Deploy to EKS
+============================================================
+
+Apply overlay
+1) kubectl apply -k k8s/overlays/aws
+
+Check status
+1) kubectl get pods -n event-pipeline
+2) kubectl rollout status deploy/collector-service -n event-pipeline
+3) kubectl rollout status deploy/worker-service -n event-pipeline
+4) kubectl rollout status deploy/query-service -n event-pipeline
+
+Logs
+1) kubectl logs -n event-pipeline deploy/worker-service --tail=200
+
+============================================================
+8) Authentication to S3 from Worker (Recommended: IRSA)
+============================================================
+
+Do this before production-like runs.
+
+High-level
+1) Create IAM policy allowing only needed S3 actions on your archive bucket.
+2) Create IAM role with trust policy for EKS OIDC + worker service account.
+3) Annotate worker service account with that role ARN.
+4) Remove static AWS keys from secrets/env.
+
+Minimal S3 actions
+- s3:PutObject
+- s3:AbortMultipartUpload
+- s3:ListBucket (optional but useful)
+
+Scope
+- bucket: arn:aws:s3:::<bucket>
+- objects: arn:aws:s3:::<bucket>/*
+
+============================================================
+9) Database Migrations Strategy
+============================================================
+
+Current worker runs migrations at startup from embedded migration files.
+For AWS/EKS safer approach:
+- Use a dedicated Kubernetes Job for migrations in deploy pipeline.
+- Start app only after migration job succeeds.
+
+For now (dev)
+- Keep current startup migration, but monitor startup logs.
+
+============================================================
+10) Testing on EKS
+============================================================
+
+Use test.sh in k8s mode.
+
+Option A: port-forward
+1) kubectl -n event-pipeline port-forward svc/collector-service 3000:80
+2) kubectl -n event-pipeline port-forward svc/query-service 3002:80
+3) ./test.sh --mode k8s --collector-url http://localhost:3000 --query-url http://localhost:3002
+
+Option B: ingress + DNS (later)
+- Set ingress controller, hostnames, and TLS.
+
+============================================================
+11) GitHub Actions
+============================================================
+
+Why GitHub Actions matters after AWS deploy
+- It gives repeatable deploys from Git instead of manual terminal steps.
+- Every commit is validated and optionally deployed with the same process.
+- It reduces "works on my machine" issues.
+
+How it works when you make a small code change
+Example: you change fraud threshold logic in `worker-service`.
+
+1) You push branch / open PR
+   - `ci.yml` runs automatically:
+     - unit tests for collector/worker/query
+     - terraform validate (syntax/config validation)
+   - If tests fail, PR should not be merged.
+
+2) You merge PR to `main`
+   - No automatic production deploy in this setup.
+   - You manually trigger:
+     - `deploy.yml` to build/push images and deploy app to EKS, or
+     - `infra.yml` if Terraform infra changes are needed.
+
+3) Cluster updates after manual deploy run
+   - `deploy.yml` tags images with SHA and updates deployments.
+   - Kubernetes performs rolling updates.
+   - If rollout fails, workflow fails and you can rollback.
+
+Current workflow files in repo
+1) `.github/workflows/ci.yml`
+   - Trigger: PR to main + push to main
+   - Jobs: unit tests, terraform validate
+
+2) `.github/workflows/deploy.yml`
+   - Trigger: manual (`workflow_dispatch`)
+   - Jobs: build/push Docker images, deploy to EKS, rollout checks
+
+3) `.github/workflows/infra.yml`
+   - Trigger: manual (`workflow_dispatch`)
+   - Input action: `plan` / `apply` / `destroy`
+   - Job: Terraform infra lifecycle for `infra/terraform/envs/dev`
+
+Unit tests required (minimum baseline)
+1) worker-service
+   - archive batching/flush behavior
+   - dedupe decision branch
+   - fraud threshold branch
+   - service processing outcomes (accepted/duplicate/fraud)
+
+2) collector-service
+   - request validation
+   - IP extraction behavior (`X-Forwarded-For`, fallback)
+
+3) query-service
+   - handler status codes (`200`, `404`, bad request)
+   - service/repo happy path and not-found behavior
+
+4) Optional integration (nightly/manual)
+   - run `test.sh` in k8s mode against test cluster
+
+Secrets/auth for GitHub Actions
+- Prefer OIDC + IAM role trust (recommended)
+- Avoid storing long-lived AWS access keys in GitHub secrets if possible
+
+Minimum GitHub Secrets (for provided workflow)
+- `AWS_GHA_ROLE_ARN`
+- `EKS_CLUSTER_NAME`
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+- `DB_URL`
+- `DB_PASSWORD`
+- `REDIS_ADDR`
+- `S3_BUCKET`
+
+Rollback model
+- Re-run deployment with previous known-good image tag
+- or `kubectl rollout undo deploy/<service> -n event-pipeline`
+
+============================================================
+12) Cost Control Checklist (very important)
+============================================================
+
+Always after testing
+1) kubectl delete -k k8s/overlays/aws
+2) terraform destroy (infra/terraform/envs/dev)
+
+Keep defaults small
+- EKS desired nodes = 1
+- small instance classes (RDS/Redis)
+- NAT disabled for dev
+
+Use short test windows and destroy quickly.
+
+============================================================
+13) What to Study (for AWS Developer Associate + interviews)
+============================================================
+
+Core AWS
+- IAM policies, roles, trust policies, least privilege
+- EKS + IRSA basics
+- S3 lifecycle + bucket policies + encryption
+- RDS networking/backups/security groups
+- ElastiCache basics
+
+Terraform
+- providers, variables, outputs
+- state, backend (S3 + DynamoDB locking)
+- modules, environments, plan/apply/destroy
+
+Kubernetes
+- Deployment vs StatefulSet vs Job
+- Service/Ingress behavior
+- ConfigMap/Secret patterns
+- probes, requests/limits, HPA dependencies
+
+Backend/System Design
+- idempotency with Redis and event IDs
+- at-least-once processing tradeoffs
+- batching and archive retention strategy
+- failure handling and graceful shutdown
+
+============================================================
+Execution Order (recommended)
+============================================================
+
+1) Terraform apply (dev infra)
+2) kubectl connect to EKS
+3) set AWS overlay values + secrets
+4) deploy k8s overlay aws
+5) run test.sh in k8s mode
+6) add IRSA and remove static creds
+7) automate with GitHub Actions

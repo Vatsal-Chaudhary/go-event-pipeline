@@ -34,3 +34,21 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/local_data/
+
+todo.txt
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+**/terraform.tfvars
+**/terraform.tfvars.json
+*.tfplan
+plan.out
+terraform.tfstate.backup
