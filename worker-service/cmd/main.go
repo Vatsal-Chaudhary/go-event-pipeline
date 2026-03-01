@@ -39,19 +39,39 @@ func main() {
 	log.Println("DB initialized successfully")
 
 	// Initialize MinIO Archiver
-	archiver, err := archive.NewBatchArchiver(
-		cfg.MinIOEndpoint,
-		cfg.MinIOAccessKey,
-		cfg.MinIOSecretKey,
-		cfg.MinIOBucket,
-		cfg.ArchiveBatchSize,
-		time.Duration(cfg.ArchiveFlushIntervalSec)*time.Second,
-		cfg.ArchivePrefixMode,
-	)
-	if err != nil {
-		log.Fatal("failed to initialize MinIO archiver:", err)
+	var archiver archive.Archiver
+	switch cfg.ArchiveBackend {
+	case "s3":
+		archiver, err = archive.NewS3BatchArchiver(
+			cfg.AWSRegion,
+			cfg.AWSAccessKey,
+			cfg.AWSSecretKey,
+			cfg.S3Bucket,
+			cfg.ArchiveBatchSize,
+			time.Duration(cfg.ArchiveFlushIntervalSec)*time.Second,
+			cfg.ArchivePrefixMode,
+		)
+		if err != nil {
+			log.Fatal("failed to initialize S3 archiver:", err)
+		}
+		log.Println("S3 archiver initialized successfully")
+	case "minio":
+		archiver, err = archive.NewMinIOBatchArchiver(
+			cfg.MinIOEndpoint,
+			cfg.MinIOAccessKey,
+			cfg.MinIOSecretKey,
+			cfg.MinIOBucket,
+			cfg.ArchiveBatchSize,
+			time.Duration(cfg.ArchiveFlushIntervalSec)*time.Second,
+			cfg.ArchivePrefixMode,
+		)
+		if err != nil {
+			log.Fatal("failed to initialize MinIO archiver:", err)
+		}
+		log.Println("MinIO archiver initialized successfully")
+	default:
+		log.Fatalf("unsupported ARCHIVE_BACKEND: %s", cfg.ArchiveBackend)
 	}
-	log.Println("MinIO archiver initialized successfully")
 
 	// Initialize Redis Deduplicator
 	dedup, err := dedupe.NewRedisDeduplicator(cfg.RedisAddr, 24*time.Hour)
@@ -62,8 +82,6 @@ func main() {
 
 	// Initialize Fraud Scorer
 	fraudClient, err := fraud.NewScorer(fraud.Config{
-		Mode:        cfg.FraudMode,
-		Endpoint:    cfg.FraudEndpoint,
 		RedisAddr:   cfg.RedisAddr,
 		IPWindowSec: cfg.FraudIPWindowSec,
 		IPThreshold: cfg.FraudIPThreshold,

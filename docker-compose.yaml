@@ -113,30 +113,6 @@ services:
       echo 'Bucket event-archive created successfully';
       "
 
-  fraud-service:
-    build:
-      context: ./fraud-service
-      dockerfile: Dockerfile
-    container_name: fraud-service
-    environment:
-      REDIS_ADDR: redis:6379
-      FRAUD_IP_WINDOW_SEC: 300
-      FRAUD_IP_THRESHOLD: 100
-    ports:
-      - "9090:8080"
-    networks:
-      - event-network
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -q -O - http://localhost:8080/health >/dev/null || exit 1",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
 networks:
   event-network:
     driver: bridge

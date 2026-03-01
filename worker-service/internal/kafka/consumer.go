@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"worker-service/internal/models"
 	"worker-service/internal/service"
 
@@ -16,6 +17,7 @@ type Consumer struct {
 	consumerGroup sarama.ConsumerGroup
 	topics        []string
 	ready         chan bool
+	readyOnce     sync.Once
 }
 
 type ConsumerConfig struct {
@@ -77,7 +79,9 @@ type consumerGroupHandler struct {
 }
 
 func (h *consumerGroupHandler) Setup(sarama.ConsumerGroupSession) error {
-	close(h.ready)
+	h.consumer.readyOnce.Do(func() {
+		close(h.ready)
+	})
 	return nil
 }
 

@@ -17,7 +17,7 @@ import (
 
 type EventService struct {
 	repo       interfaces.EventRepo
-	archiver   *archive.BatchArchiver
+	archiver   archive.Archiver
 	dedup      *dedupe.RedisDeduplicator
 	fraudCheck fraud.Scorer
 
@@ -48,7 +48,7 @@ type MetricsData struct {
 }
 
 type Config struct {
-	Archiver   *archive.BatchArchiver
+	Archiver   archive.Archiver
 	Dedup      *dedupe.RedisDeduplicator
 	FraudCheck fraud.Scorer
 }
