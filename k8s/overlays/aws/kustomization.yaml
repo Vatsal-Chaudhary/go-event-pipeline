@@ -5,9 +5,10 @@ resources:
   - ../../base
 
 patchesStrategicMerge:
-  - patches/configmap-aws.yaml
   - patches/worker-deployment-s3.yaml
   - patches/aws-replica-tuning.yaml
+  - patches/delete-app-configmap.yaml
+  - patches/delete-app-secrets.yaml
   - patches/delete-worker-hpa.yaml
   - patches/delete-minio-deployment.yaml
   - patches/delete-minio-service.yaml
@@ -15,3 +16,5 @@ patchesStrategicMerge:
   - patches/delete-minio-bucket-job.yaml
   - patches/delete-postgres-statefulset.yaml
   - patches/delete-postgres-service.yaml
+  - patches/delete-redis-deployment.yaml
+  - patches/delete-redis-service.yaml

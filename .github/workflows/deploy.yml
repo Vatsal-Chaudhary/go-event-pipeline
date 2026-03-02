@@ -83,9 +83,34 @@ jobs:
       - name: Configure kubeconfig
         run: aws eks update-kubeconfig --region $AWS_REGION --name "${{ secrets.EKS_CLUSTER_NAME }}"
 
-      - name: Ensure namespace and secret
+      - name: Ensure namespace and runtime config
         run: |
           kubectl create namespace event-pipeline --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n event-pipeline create configmap event-pipeline-config \
+            --from-literal=COLLECTOR_PORT="3000" \
+            --from-literal=COLLECTOR_KAFKA_TOPIC="raw-events" \
+            --from-literal=WORKER_PORT="3001" \
+            --from-literal=WORKER_KAFKA_GROUP_ID="worker-service-group" \
+            --from-literal=WORKER_KAFKA_TOPICS="raw-events" \
+            --from-literal=WORKER_BATCH_SIZE="100" \
+            --from-literal=WORKER_FLUSH_INTERVAL_SEC="5" \
+            --from-literal=WORKER_ARCHIVE_BATCH_SIZE="100" \
+            --from-literal=WORKER_ARCHIVE_FLUSH_INTERVAL_SEC="5" \
+            --from-literal=WORKER_ARCHIVE_PREFIX_MODE="status" \
+            --from-literal=WORKER_ARCHIVE_BACKEND="s3" \
+            --from-literal=WORKER_FRAUD_IP_WINDOW_SEC="300" \
+            --from-literal=WORKER_FRAUD_IP_THRESHOLD="100" \
+            --from-literal=QUERY_PORT="3002" \
+            --from-literal=KAFKA_BROKERS="redpanda:9092" \
+            --from-literal=REDIS_ADDR="${{ secrets.REDIS_ADDR }}" \
+            --from-literal=MINIO_ENDPOINT="unused" \
+            --from-literal=MINIO_BUCKET="unused" \
+            --from-literal=AWS_REGION="${{ env.AWS_REGION }}" \
+            --from-literal=S3_BUCKET="${{ secrets.S3_BUCKET }}" \
+            --from-literal=POSTGRES_HOST="unused" \
+            --from-literal=POSTGRES_PORT="5432" \
+            --from-literal=POSTGRES_DB="analytics" \
+            --dry-run=client -o yaml | kubectl apply -f -
           kubectl -n event-pipeline create secret generic event-pipeline-secrets \
             --from-literal=DB_URL="${{ secrets.DB_URL }}" \
             --from-literal=POSTGRES_USER="postgres" \
@@ -98,10 +123,6 @@ jobs:
 
       - name: Apply AWS overlay
         run: kubectl apply -k k8s/overlays/aws
-
-      - name: Patch runtime endpoints
-        run: |
-          kubectl -n event-pipeline patch configmap event-pipeline-config --type merge -p '{"data": {"S3_BUCKET": "${{ secrets.S3_BUCKET }}", "REDIS_ADDR": "${{ secrets.REDIS_ADDR }}", "AWS_REGION": "ap-south-1", "WORKER_ARCHIVE_BACKEND": "s3"}}'
 
       - name: Set deployment images
         run: |
