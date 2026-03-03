@@ -4,17 +4,18 @@ kind: Kustomization
 resources:
   - ../../base
 
-patchesStrategicMerge:
-  - patches/worker-deployment-s3.yaml
-  - patches/aws-replica-tuning.yaml
-  - patches/delete-app-configmap.yaml
-  - patches/delete-app-secrets.yaml
-  - patches/delete-worker-hpa.yaml
-  - patches/delete-minio-deployment.yaml
-  - patches/delete-minio-service.yaml
-  - patches/delete-minio-pvc.yaml
-  - patches/delete-minio-bucket-job.yaml
-  - patches/delete-postgres-statefulset.yaml
-  - patches/delete-postgres-service.yaml
-  - patches/delete-redis-deployment.yaml
-  - patches/delete-redis-service.yaml
+patches:
+  - path: patches/worker-deployment-s3.yaml
+  - path: patches/aws-replica-tuning.yaml
+  - path: patches/aws-ingress.yaml
+  - path: patches/delete-app-configmap.yaml
+  - path: patches/delete-app-secrets.yaml
+  - path: patches/delete-worker-hpa.yaml
+  - path: patches/delete-minio-deployment.yaml
+  - path: patches/delete-minio-service.yaml
+  - path: patches/delete-minio-pvc.yaml
+  - path: patches/delete-minio-bucket-job.yaml
+  - path: patches/delete-postgres-statefulset.yaml
+  - path: patches/delete-postgres-service.yaml
+  - path: patches/delete-redis-deployment.yaml
+  - path: patches/delete-redis-service.yaml

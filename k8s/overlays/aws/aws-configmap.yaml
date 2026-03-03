@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: event-pipeline-config
+  namespace: event-pipeline
+data:
+  COLLECTOR_PORT: "3000"
+  COLLECTOR_KAFKA_TOPIC: "raw-events"
+
+  WORKER_PORT: "3001"
+  WORKER_KAFKA_GROUP_ID: "worker-service-group"
+  WORKER_KAFKA_TOPICS: "raw-events"
+  WORKER_BATCH_SIZE: "100"
+  WORKER_FLUSH_INTERVAL_SEC: "5"
+  WORKER_ARCHIVE_BATCH_SIZE: "100"
+  WORKER_ARCHIVE_FLUSH_INTERVAL_SEC: "5"
+  WORKER_ARCHIVE_PREFIX_MODE: "status"
+  WORKER_ARCHIVE_BACKEND: "s3"
+  WORKER_FRAUD_IP_WINDOW_SEC: "300"
+  WORKER_FRAUD_IP_THRESHOLD: "100"
+
+  QUERY_PORT: "3002"
+
+  KAFKA_BROKERS: "redpanda:9092"
+  # -- Replace with your ElastiCache endpoint from: terraform output -raw redis_endpoint
+  REDIS_ADDR: "REPLACE_ME:6379"
+  AWS_REGION: "ap-south-1"
+  # -- Replace with your S3 bucket name from: terraform output -raw s3_bucket_name
+  S3_BUCKET: "REPLACE_ME"
